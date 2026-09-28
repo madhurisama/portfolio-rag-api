@@ -1,20 +1,33 @@
 import os
+import numpy as np
 from dotenv import load_dotenv
 import google.generativeai as genai
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
-import numpy as np
 
-# ---- Load API key from .env ----
 load_dotenv()
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
 llm = genai.GenerativeModel('gemini-3.8-flash')
 
-app = FastAPI()
+# ---- Auto-detect an embedding model this API key can use ----
+def pick_embedding_model():
+    names = [
+        m.name for m in genai.list_models()
+        if 'embedContent' in m.supported_generation_methods
+    ]
+    print("Available embedding models:", names)
+    for preferred in ("text-embedding", "embedding"):
+        for n in names:
+            if preferred in n:
+                return n
+    return names[0]
 
+EMBED_MODEL = pick_embedding_model()
+print("Using embedding model:", EMBED_MODEL)
+
+app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -22,12 +35,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---- Embedding model ----
-model = SentenceTransformer('all-MiniLM-L6-v2')
-
 # ---- Knowledge base: full portfolio ----
 documents = [
-    # --- Projects ---
+    # Projects
     "Madhuri built a Population Distribution Visualization project at Prodigy InfoTech: bar chart and histogram to visualize population distribution using World Bank data across 200+ countries. Tools: Python, Pandas, Matplotlib, Seaborn.",
     "Madhuri performed Titanic EDA and Data Cleaning at Prodigy InfoTech: complete exploratory data analysis on Titanic dataset uncovering survival patterns by gender, class, and age. Tools: Python, Pandas, Seaborn, EDA.",
     "Madhuri built a Decision Tree Classifier at Prodigy InfoTech: predicted customer purchase behavior using Bank Marketing dataset with Full and Pruned Decision Trees. Tools: Python, Scikit-learn, Decision Tree, ROC-AUC.",
@@ -45,10 +55,10 @@ documents = [
     "Madhuri built a Crime Data Analysis System as a personal project: a data pipeline to clean 5000+ crime records, surfacing high-risk zones and seasonal patterns with 8+ visualizations. Tools: Python, Pandas, NumPy, Matplotlib.",
     "Madhuri built a Smart Event Invitation System as a personal project: a responsive multi-page web app with real-time form validation, dynamic UI updates, and zero-reload RSVP flow. Tools: HTML5, CSS3, JavaScript, Git.",
 
-    # --- About / Bio ---
+    # About
     "Madhuri is a B.Tech Data Science student at Siddhartha Institute of Engineering and Technology, Hyderabad, with a CGPA of 9.38. She has hands-on experience in Python, SQL, data analysis, and frontend web development. She is currently interning at both Oasis Infobyte and Prodigy InfoTech, and has completed 14+ real-world data projects covering EDA, machine learning, NLP, and data visualization.",
 
-    # --- Skills ---
+    # Skills
     "Madhuri's programming skills include Python, Pandas, NumPy, Matplotlib, Java, and C.",
     "Madhuri's web technology skills include HTML5, CSS3, JavaScript ES6+, and Responsive Design.",
     "Madhuri's data and analytics skills include SQL, EDA, Data Visualization, and MS Excel.",
@@ -56,47 +66,70 @@ documents = [
     "Madhuri's developer tools include Git & GitHub, VS Code, Jupyter, Google Colab, and Adobe Tools.",
     "Madhuri's other skills include DBMS, Data Structures and Algorithms (DSA), Problem Solving, and Analytical Thinking.",
 
-    # --- Experience ---
+    # Experience
     "Madhuri worked as a Data Science Intern at Prodigy InfoTech from May 2026 to June 2026, completing 5 data science projects covering population visualization, Titanic EDA, Decision Tree classification, Twitter sentiment analysis using NLP, and US traffic accident pattern analysis.",
     "Madhuri worked as a Data Analytics Intern at Oasis Infobyte from May 2026 to June 2026, completing all 9 projects across Level 1 and Level 2, including data cleaning, retail sales EDA, customer segmentation, sentiment analysis, house price prediction, wine quality prediction, fraud detection, Google Play Store analysis, and an NLP autocomplete system. She is eligible for a Letter of Recommendation (LOR).",
     "Madhuri completed a Data Analytics Job Simulation with Deloitte via Forage in March 2026, covering real business problem solving, data interpretation, and professional analytics workflows.",
 
-    # --- Education ---
+    # Education
     "Madhuri is pursuing a B.Tech in Data Science at Siddhartha Institute of Engineering and Technology, Ibrahimpatnam, affiliated with JNTUH and accredited by NBA & NAAC, expected to graduate in 2028, with a CGPA of 9.38/10.",
     "Madhuri completed her Intermediate (Class XII) with MPC (Mathematics, Physics, Chemistry) at Sri Chaitanya Junior College under TSBIE in 2024, scoring 92.1% (921/1000).",
     "Madhuri completed her Secondary School Certificate (Class X) at St. Mark's High School under the SSC Board, Telangana, in 2022, with a GPA of 9.7.",
 
-    # --- Certifications & Achievements (reworded with explicit category words) ---
+    # Certifications & achievements
     "Madhuri holds a certification: Foundation Course in Python, Data Analytics, DBMS, and DSA through Edunet Foundation / SAP Code Unnati, 2025-2026.",
     "Madhuri holds a certification: Design Fundamentals with AI by Adobe x UNICEF (YuWaah), December 2025, scoring 100%.",
     "Madhuri has an achievement: Internal Hackathon for Smart India Hackathon 2024 at SIET (MHRD/AICTE), September 2024.",
     "Madhuri has an achievement: 1st Prize in Poster Presentation at Eminence 2026, Sri Indu College of Engineering, February 2026.",
     "Madhuri has an achievement: App Expo participation at Tech Samprathi 2026, NNRG Institutions, February 2026.",
 
-    # --- Languages ---
+    # Languages
     "Madhuri is professionally proficient in English, a native speaker of Telugu, and conversational in Hindi.",
 
-    # --- Contact ---
+    # Contact
     "Madhuri is open to internship opportunities, project collaborations, and full-time roles in Data Analytics and Frontend Development. She can be reached by email at madhurisama89@gmail.com, on LinkedIn at linkedin.com/in/madhuri-sama-3518bb324, or on GitHub at github.com/madhurisama. She is based in Hyderabad, Telangana, India."
 ]
 
-doc_embeddings = model.encode(documents)
+# ---- Embeddings (computed by Google's servers, so no heavy local model) ----
+def embed_documents(texts):
+    result = genai.embed_content(
+        model=EMBED_MODEL,
+        content=texts,
+        task_type="retrieval_document",
+    )
+    return np.array(result['embedding'])
 
-def retrieve(query, top_k=3, threshold=0.25):
-    query_embedding = model.encode([query])
-    similarities = cosine_similarity(query_embedding, doc_embeddings)[0]
-    top_indices = np.argsort(similarities)[::-1][:top_k]
+def embed_query(text):
+    result = genai.embed_content(
+        model=EMBED_MODEL,
+        content=text,
+        task_type="retrieval_query",
+    )
+    return np.array(result['embedding'])
+
+# Embed all documents once at startup
+doc_embeddings = embed_documents(documents)
+doc_norms = doc_embeddings / np.linalg.norm(doc_embeddings, axis=1, keepdims=True)
+
+def retrieve(query, top_k=3, margin=0.08):
+    q = embed_query(query)
+    q = q / np.linalg.norm(q)
+    scores = doc_norms @ q
+    top_indices = np.argsort(scores)[::-1][:top_k]
+    best = scores[top_indices[0]]
+
     for i in top_indices:
-        print(f"  [{similarities[i]:.3f}] {documents[i][:60]}...")
-    return [documents[i] for i in top_indices if similarities[i] >= threshold]
+        print(f"  [{scores[i]:.3f}] {documents[i][:60]}...")
+
+    # Keep matches that are close to the best score (scale-independent)
+    return [documents[i] for i in top_indices if scores[i] >= best - margin]
 
 def generate_answer(query):
-    context_chunks = retrieve(query, top_k=3)
-    if not context_chunks:
-        return "I don't have information about that in her portfolio."
+    try:
+        context_chunks = retrieve(query)
+        context = "\n".join(context_chunks)
 
-    context = "\n".join(context_chunks)
-    prompt = f"""Answer the question using ONLY the context below. Be specific — mention exact names, dates, and details where relevant. If multiple relevant items exist in the context, list all of them.
+        prompt = f"""You are Shiro, a friendly assistant on Madhuri's portfolio website. Answer the question using ONLY the context below. Be specific: mention exact names, dates, and details. If several relevant items exist, list all of them. If the context does not contain the answer, reply exactly: "I don't have information about that in Madhuri's portfolio."
 
 Context:
 {context}
@@ -105,8 +138,11 @@ Question: {query}
 
 Answer:"""
 
-    response = llm.generate_content(prompt)
-    return response.text
+        response = llm.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        print("Error:", e)
+        return "Sorry, something went wrong on my side. Please try again in a moment."
 
 # ---- API endpoints ----
 class Query(BaseModel):
@@ -114,8 +150,7 @@ class Query(BaseModel):
 
 @app.post("/ask")
 def ask(query: Query):
-    answer = generate_answer(query.question)
-    return {"answer": answer}
+    return {"answer": generate_answer(query.question)}
 
 @app.get("/")
 def root():
