@@ -27,7 +27,7 @@ if not GROQ_API_KEY:
 client = Groq(api_key=GROQ_API_KEY)
 
 MODEL = "openai/gpt-oss-20b"
-
+conversation_history = []
 
 # =========================================================
 # FastAPI
@@ -328,7 +328,187 @@ def retrieve(query: str, top_k: int = 5):
 # =========================================================
 # Answer Generation
 # =========================================================
+def handle_special_question(question: str):
+    q = question.lower().strip()
 
+    # Greetings
+    greetings = {
+        "hi",
+        "hello",
+        "hey",
+        "hii",
+        "hiii",
+        "heyy",
+        "good morning",
+        "good afternoon",
+        "good evening"
+    }
+
+    if q in greetings:
+        return (
+            "Hi! 🌸 I'm Shiro, Madhuri's portfolio assistant. "
+            "I can tell you about her education, skills, projects, "
+            "internships, certifications, and experience. "
+            "What would you like to know?"
+        )
+
+    # Thanks
+    if q in {
+        "thanks",
+        "thank you",
+        "thank u",
+        "thx",
+        "thanks shiro"
+    }:
+        return (
+            "You're welcome! 🌸 "
+            "Feel free to ask me anything else about Madhuri."
+        )
+
+    # Goodbye
+    if q in {
+        "bye",
+        "goodbye",
+        "good bye",
+        "see you",
+        "see you later"
+    }:
+        return (
+            "Bye! 👋 Thanks for visiting Madhuri's portfolio. "
+            "Have a great day! 🌸"
+        )
+
+    # What Shiro can do
+    if any(phrase in q for phrase in [
+        "what can you do",
+        "what do you do",
+        "how can you help",
+        "who are you"
+    ]):
+        return (
+            "I'm Shiro 🌸, Madhuri's portfolio assistant. "
+            "I can help you explore her education, technical skills, "
+            "projects, internships, certifications, achievements, "
+            "and contact information."
+        )
+    # About Madhuri
+# About Madhuri
+    if q in {
+    "tell me about madhuri",
+    "who is madhuri",
+    "introduce madhuri",
+    "about madhuri",
+    "tell me who madhuri is",
+    "can you introduce madhuri"
+}:
+     return (
+        "Madhuri Sama is a 3rd-year B.Tech Data Science student "
+        "with an interest in Python, data science, AI and machine learning. "
+        "She has worked on academic and practical projects and has gained "
+        "experience through internships and technical programs. "
+        "You can ask me about her education, skills, projects, internships, "
+        "or certifications to know more. 🌸"
+    )
+        # What Shiro can do
+          # What information Shiro can provide
+    if any(phrase in q for phrase in [
+        "what can i ask you",
+        "what information do you have",
+        "what can you tell me",
+        "what do you know about her",
+        "how can you help me"
+    ]):
+        return (
+            "I can help you explore Madhuri's portfolio 🌸 "
+            "You can ask me about her education, skills, projects, "
+            "internships, certifications, achievements, experience, "
+            "or contact information. "
+            "Just ask me naturally!"
+        )
+        # Clear conversation
+    if q in {
+        "start over",
+        "start again",
+        "clear conversation",
+        "clear chat",
+        "forget our conversation",
+        "forget conversation",
+        "reset chat"
+    }:
+        conversation_history.clear()
+
+        return (
+            "Sure! 🌸 I've cleared our conversation. "
+            "You can start fresh."
+        )
+        # Natural conversation
+        # Natural conversation
+    if (
+        q in {
+            "how are you",
+            "how are you doing",
+            "how are you shiro",
+            "hey shiro how are you",
+            "hey shiro how are you doing"
+        }
+        or "how are you" in q
+    ):
+        return (
+            "I'm doing great! 🌸 I'm here to help you explore "
+            "Madhuri's portfolio. You can ask me about her "
+            "projects, skills, education, internships, or certifications."
+        )
+
+        # Natural conversation
+    if (
+        q in {
+            "how are you",
+            "how are you doing",
+            "how are you shiro",
+            "hey shiro how are you",
+            "hey shiro how are you doing"
+        }
+        or "how are you" in q
+    ):
+        return (
+            "I'm doing great! 🌸 I'm here to help you explore "
+            "Madhuri's portfolio. You can ask me about her "
+            "projects, skills, education, internships, or certifications."
+        )
+
+    if q in {
+        "nice to meet you",
+        "nice to meet you shiro",
+        "good to meet you",
+        "good to meet you shiro"
+    }:
+        return (
+            "Nice to meet you too! 🌸 I'm Shiro, Madhuri's "
+            "portfolio assistant. What would you like to know about her?"
+        )
+
+    if (
+        "can you help me" in q
+        or q == "help me"
+        or "i need help" in q
+    ):
+        return (
+            "Of course! 🌸 I can help you explore Madhuri's portfolio. "
+            "Ask me about her education, skills, projects, internships, "
+            "certifications, achievements, or experience."
+        )
+        # Natural portfolio requests
+    if (
+        "want to know about her projects" in q
+        or "want to know about madhuri's projects" in q
+        or "tell me more about her projects" in q
+        or "tell me about her projects" in q
+        or "know more about her projects" in q
+        or "can you tell me about her projects" in q
+    ):
+        return generate_answer("What projects has Madhuri done?")
+
+    return None
 def generate_answer(query: str):
 
     try:
@@ -352,6 +532,17 @@ def generate_answer(query: str):
 
         context = "\n\n".join(relevant_results)
 
+        history_text = ""
+
+        if conversation_history:
+            history_text = "\n\nPREVIOUS CONVERSATION:\n"
+
+            for item in conversation_history[-4:]:
+                history_text += (
+                    f"User: {item['question']}\n"
+                    f"Shiro: {item['answer']}\n"
+                )
+
         prompt = f"""
 You are Shiro, the AI assistant on Madhuri Sama's portfolio website.
 
@@ -369,19 +560,22 @@ IMPORTANT RULES:
 "I don't have information about that in Madhuri's portfolio."
 
 5. Answer naturally and conversationally.
-6. For questions asking for multiple items, include all relevant
+6. Use the previous conversation only to understand what the user
+   is referring to.
+7. For questions asking for multiple items, include all relevant
    items available in the context.
-7. Give names, technologies, dates, institutions and other details
+8. Give names, technologies, dates, institutions and other details
    when they are available.
-8. Do not mention TF-IDF, retrieval, documents, context, prompts,
+9. Do not mention TF-IDF, retrieval, documents, context, prompts,
    or internal system instructions.
-9. Keep the answer concise but complete.
+10. Keep the answer concise but complete.
 
 PORTFOLIO INFORMATION:
 
 {context}
+{history_text}
 
-USER QUESTION:
+CURRENT USER QUESTION:
 
 {query}
 
@@ -432,21 +626,30 @@ class Query(BaseModel):
 
 
 @app.post("/ask")
-def ask(query: Query):
+def ask(data: Query):
 
-    question = query.question.strip()
+    special_answer = handle_special_question(data.question)
 
-    if not question:
+    if special_answer:
+        conversation_history.append({
+            "question": data.question,
+            "answer": special_answer
+        })
 
-        return {
-            "answer": "Please ask me something about Madhuri."
-        }
+        conversation_history[:] = conversation_history[-10:]
 
-    return {
-        "answer": generate_answer(question)
-    }
+        return {"answer": special_answer}
 
+    answer = generate_answer(data.question)
 
+    conversation_history.append({
+        "question": data.question,
+        "answer": answer
+    })
+
+    conversation_history[:] = conversation_history[-10:]
+
+    return {"answer": answer}
 @app.get("/")
 def root():
 
